@@ -59,6 +59,7 @@ func addNewEntry(path string) *heartbeatInfo {
 	}()
 
 	cache.Store(path, info)
+	return info
 }
 
 func cleanupExpiredEntries() {
