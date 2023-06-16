@@ -65,18 +65,26 @@ func addNewEntry(path string) *heartbeatInfo {
 func cleanupExpiredEntries() {
 	ticker := time.NewTicker(cleanupInterval)
 	for range ticker.C {
+		deletedPaths := make([]string, 0) // To store expired paths for deletion
+
 		cache.Range(func(key, value interface{}) bool {
 			info := value.(*heartbeatInfo)
 			if time.Since(info.timestamp) > defaultExpiration {
 				log.Printf("Removing expired entry for path %s\n", key)
-				cache.Delete(key)
+				deletedPaths = append(deletedPaths, key.(string))
 			}
 			return true
 		})
 
+		// Delete the expired paths outside of the cache.Range loop
+		for _, path := range deletedPaths {
+			cache.Delete(path)
+		}
+
 		cleanupWg.Done()
 	}
 }
+
 
 func init() {
 	cleanupOnce.Do(func() {
