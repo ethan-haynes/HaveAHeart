@@ -1,4 +1,4 @@
-package heartbeat
+package haveaheart
 
 import (
 	"log"
