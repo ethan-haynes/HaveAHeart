@@ -64,26 +64,34 @@ func addNewEntry(path string) *heartbeatInfo {
 
 func cleanupExpiredEntries() {
 	ticker := time.NewTicker(cleanupInterval)
-	for range ticker.C {
-		deletedPaths := make([]string, 0) // To store expired paths for deletion
+	for {
+		select {
+		case <-ticker.C:
+			deletedPaths := make([]string, 0) // To store expired paths for deletion
 
-		cache.Range(func(key, value interface{}) bool {
-			info := value.(*heartbeatInfo)
-			if time.Since(info.timestamp) > defaultExpiration {
-				log.Printf("Removing expired entry for path %s\n", key)
-				deletedPaths = append(deletedPaths, key.(string))
+			cache.Range(func(key, value interface{}) bool {
+				info := value.(*heartbeatInfo)
+				if time.Since(info.timestamp) > defaultExpiration {
+					log.Printf("Removing expired entry for path %s\n", key)
+					deletedPaths = append(deletedPaths, key.(string))
+				}
+				return true
+			})
+
+			// Delete the expired paths outside of the cache.Range loop
+			for _, path := range deletedPaths {
+				cache.Delete(path)
 			}
-			return true
-		})
 
-		// Delete the expired paths outside of the cache.Range loop
-		for _, path := range deletedPaths {
-			cache.Delete(path)
+			cleanupWg.Done()
+
+		case <-cleanupStopChan:
+			ticker.Stop()
+			return
 		}
-
-		cleanupWg.Done()
 	}
 }
+
 
 
 func init() {
@@ -102,6 +110,9 @@ func handleTerminationSignal() {
 
 	// Call PerformCleanup when termination signal is received
 	PerformCleanup()
+
+	// Close the cleanupStopChan to terminate the cleanup loop
+	close(cleanupStopChan)
 
 	// Terminate the program
 	os.Exit(0)
