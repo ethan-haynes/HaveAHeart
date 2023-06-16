@@ -87,13 +87,15 @@ func cleanupExpiredEntries() {
 
 		case <-cleanupStopChan:
 			ticker.Stop()
-			cleanupWg.Done()
 			return
 		}
 
-		cleanupWg.Done()
+		if cleanupWg != nil {
+			cleanupWg.Done()
+		}
 	}
 }
+
 
 func init() {
 	cleanupOnce.Do(func() {
