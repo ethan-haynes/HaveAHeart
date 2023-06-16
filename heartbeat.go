@@ -16,9 +16,10 @@ const (
 )
 
 var (
-	cache       sync.Map
-	cleanupOnce sync.Once
-	cleanupWg   sync.WaitGroup
+	cache            sync.Map
+	cleanupOnce      sync.Once
+	cleanupWg        sync.WaitGroup
+	cleanupStopChan  chan struct{}
 )
 
 type heartbeatInfo struct {
@@ -59,6 +60,7 @@ func addNewEntry(path string) *heartbeatInfo {
 	}()
 
 	cache.Store(path, info)
+
 	return info
 }
 
@@ -92,11 +94,10 @@ func cleanupExpiredEntries() {
 	}
 }
 
-
-
 func init() {
 	cleanupOnce.Do(func() {
 		cleanupWg.Add(1)
+		cleanupStopChan = make(chan struct{})
 		go cleanupExpiredEntries()
 	})
 
