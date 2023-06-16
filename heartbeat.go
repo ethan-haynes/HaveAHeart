@@ -85,12 +85,13 @@ func cleanupExpiredEntries() {
 				cache.Delete(path)
 			}
 
-			cleanupWg.Done()
-
 		case <-cleanupStopChan:
 			ticker.Stop()
+			cleanupWg.Done()
 			return
 		}
+
+		cleanupWg.Done()
 	}
 }
 
