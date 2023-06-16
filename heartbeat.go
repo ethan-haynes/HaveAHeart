@@ -26,7 +26,7 @@ type heartbeatInfo struct {
 	timer     *time.Timer
 }
 
-func handleHeartbeatRequest(w http.ResponseWriter, r *http.Request) {
+func HandleHeartbeatRequest(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	if r.Method != "GET" {
