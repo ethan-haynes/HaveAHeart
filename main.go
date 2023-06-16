@@ -3,7 +3,10 @@ package heartbeat
 import (
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -12,28 +15,18 @@ const (
 	cleanupInterval   = 10 * time.Second
 )
 
-type HeartbeatMiddleware struct {
-	cache     sync.Map
-	paths     []string
-	heartbeat http.Handler
-}
+var (
+	cache       sync.Map
+	cleanupOnce sync.Once
+	cleanupWg   sync.WaitGroup
+)
 
 type heartbeatInfo struct {
 	timestamp time.Time
 	timer     *time.Timer
 }
 
-func NewHeartbeatMiddleware(paths []string, heartbeat http.Handler) *HeartbeatMiddleware {
-	middleware := &HeartbeatMiddleware{
-		cache:     sync.Map{},
-		paths:     paths,
-		heartbeat: heartbeat,
-	}
-	go middleware.cleanupExpiredEntries()
-	return middleware
-}
-
-func (m *HeartbeatMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Handler) {
+func handleHeartbeatRequest(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	if r.Method != "GET" {
@@ -41,22 +34,19 @@ func (m *HeartbeatMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	if contains(m.paths, path) {
-		entry, ok := m.cache.Load(path)
-		if !ok {
-			entry = m.addNewEntry(path)
-		}
-
-		info := entry.(*heartbeatInfo)
-		info.timestamp = time.Now()
-		info.timer.Reset(defaultExpiration)
+	entry, ok := cache.Load(path)
+	if !ok {
+		entry = addNewEntry(path)
 	}
 
-	m.heartbeat.ServeHTTP(w, r)
-	next.ServeHTTP(w, r)
+	info := entry.(*heartbeatInfo)
+	info.timestamp = time.Now()
+	info.timer.Reset(defaultExpiration)
+
+	w.WriteHeader(http.StatusOK)
 }
 
-func (m *HeartbeatMiddleware) addNewEntry(path string) *heartbeatInfo {
+func addNewEntry(path string) *heartbeatInfo {
 	info := &heartbeatInfo{
 		timestamp: time.Now(),
 		timer:     time.NewTimer(defaultExpiration),
@@ -65,32 +55,51 @@ func (m *HeartbeatMiddleware) addNewEntry(path string) *heartbeatInfo {
 		<-info.timer.C
 		log.Printf("Missed heartbeat for path %s\n", path)
 		// send email, SMS, or other notification to alert someone of the missed heartbeat
-		m.cache.Delete(path)
+		cache.Delete(path)
 	}()
 
-	m.cache.Store(path, info)
-	return info
+	cache.Store(path, info)
 }
 
-func (m *HeartbeatMiddleware) cleanupExpiredEntries() {
+func cleanupExpiredEntries() {
 	ticker := time.NewTicker(cleanupInterval)
 	for range ticker.C {
-		m.cache.Range(func(key, value interface{}) bool {
+		cache.Range(func(key, value interface{}) bool {
 			info := value.(*heartbeatInfo)
 			if time.Since(info.timestamp) > defaultExpiration {
 				log.Printf("Removing expired entry for path %s\n", key)
-				m.cache.Delete(key)
+				cache.Delete(key)
 			}
 			return true
 		})
+
+		cleanupWg.Done()
 	}
 }
 
-func contains(paths []string, path string) bool {
-	for _, p := range paths {
-		if p == path {
-			return true
-		}
-	}
-	return false
+func init() {
+	cleanupOnce.Do(func() {
+		cleanupWg.Add(1)
+		go cleanupExpiredEntries()
+	})
+
+	go handleTerminationSignal()
+}
+
+func handleTerminationSignal() {
+	terminationChan := make(chan os.Signal, 1)
+	signal.Notify(terminationChan, os.Interrupt, syscall.SIGTERM)
+	<-terminationChan
+
+	// Call PerformCleanup when termination signal is received
+	PerformCleanup()
+
+	// Terminate the program
+	os.Exit(0)
+}
+
+// PerformCleanup performs the cleanup process and waits for its completion.
+// It should be called when the server is about to exit.
+func PerformCleanup() {
+	cleanupWg.Wait()
 }
