@@ -66,6 +66,7 @@ func addNewEntry(path string) *heartbeatInfo {
 
 func cleanupExpiredEntries() {
 	ticker := time.NewTicker(cleanupInterval)
+	doneOnce := sync.Once{}
 	for {
 		select {
 		case <-ticker.C:
@@ -87,14 +88,18 @@ func cleanupExpiredEntries() {
 
 		case <-cleanupStopChan:
 			ticker.Stop()
+			doneOnce.Do(func() {
+				cleanupWg.Done()
+			})
 			return
 		}
 
-		if cleanupWg != nil {
+		doneOnce.Do(func() {
 			cleanupWg.Done()
-		}
+		})
 	}
 }
+
 
 
 func init() {
